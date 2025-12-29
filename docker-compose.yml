@@ -1,0 +1,40 @@
+services:
+  backend:
+    image: java-backend
+    deploy:
+      replicas: 2
+      restart_policy:
+        condition: on-failure
+      labels:
+        app: backend
+        scalable: "true"
+    networks:
+      - app-net
+
+  autoscaler:
+    image: autoscaler
+    user: root
+    privileged: true
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:z
+    deploy:
+      placement:
+        constraints:
+          - node.role == manager
+    networks:
+      - app-net
+
+  nginx:
+    image: nginx-lb
+    ports:
+      - "80:80"
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+    networks:
+      - app-net
+
+networks:
+  app-net:
+    driver: overlay
