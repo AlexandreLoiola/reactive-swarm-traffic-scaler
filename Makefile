@@ -27,11 +27,11 @@ status:
 	docker stack services $(PROJECT)
 
 stop:
-	@echo "You can crush the flowers, but you can't stop the spring"
 	docker service scale \
 		upscaler_backend=0 \ 
 		upscaler_nginx=0 \
 		upscaler_autoscaler=0
+	@echo "You can crush the flowers, but you can't stop the spring..."
 
 start:
 	docker service scale \
