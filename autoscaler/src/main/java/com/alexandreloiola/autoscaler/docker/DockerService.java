@@ -2,6 +2,6 @@ package com.alexandreloiola.autoscaler.docker;
 
 public interface DockerService {
     int countBackendInstances();
-    void scaleUp();
-    void scaleDown();
+    void scaleUp(int instanceDelta);
+    void scaleDown(int instanceDelta);
 }

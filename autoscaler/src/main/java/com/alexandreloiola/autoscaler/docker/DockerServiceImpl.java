@@ -15,10 +15,10 @@ public class DockerServiceImpl implements DockerService {
     @Value("${autoscaler.docker.service-name:upscaler_backend}")
     private String serviceName;
 
-    @Value("${autoscaler.docker.min-replicas:10}")
+    @Value("${autoscaler.docker.min-replicas:1}")
     private int minReplicas;
 
-    @Value("${autoscaler.docker.max-replicas:1}")
+    @Value("${autoscaler.docker.max-replicas:10}")
     private int maxReplicas;
 
     private final DockerClient dockerClient;
@@ -28,30 +28,43 @@ public class DockerServiceImpl implements DockerService {
     }
 
     @Override
-    public void scaleUp() {
-        long current = getCurrentReplicas();
+    public void scaleUp(int instancesToAdd) {
+        if (instancesToAdd <= 0) {
+            log.debug("Scale up skipped: instancesToAdd={}", instancesToAdd);
+            return;
+        }
 
+        long current = getCurrentReplicas();
+        long target = Math.min(current + instancesToAdd, maxReplicas);
+
+        if (target == current) {
+            log.debug("Scale up skipped. Service '{}' already at max replicas ({})", serviceName, current);
+            return;
+        }
         if (current >= maxReplicas) {
             log.debug("Scale up skipped. Service '{}' already at max replicas ({})", serviceName, current);
             return;
         }
 
-        long target = current + 1;
         log.info("Scaling UP service '{}' from {} to {} replicas", serviceName, current, target);
-
         updateReplicas(target);
     }
 
     @Override
-    public void scaleDown() {
-        long current = getCurrentReplicas();
+    public void scaleDown(int instancesToRemove) {
+        if (instancesToRemove <= 0) {
+            log.debug("Scale down skipped: instancesToRemove={}", instancesToRemove);
+            return;
+        }
 
-        if (current <= minReplicas) {
+        long current = getCurrentReplicas();
+        long target = Math.max(current - instancesToRemove, minReplicas);
+
+        if (target == current) {
             log.debug("Scale down skipped. Service '{}' already at min replicas ({})", serviceName, current);
             return;
         }
 
-        long target = current - 1;
         log.info("Scaling DOWN service '{}' from {} to {} replicas", serviceName, current, target);
 
         updateReplicas(target);

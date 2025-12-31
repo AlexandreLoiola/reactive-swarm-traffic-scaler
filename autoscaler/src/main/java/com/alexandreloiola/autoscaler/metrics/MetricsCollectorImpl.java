@@ -47,15 +47,9 @@ public class MetricsCollectorImpl implements MetricsCollector {
             log.debug("Calculated RPS: {}", finalRps);
 
             return finalRps;
-
         } catch (ResourceAccessException ex) {
-            log.warn(
-                    "Unable to reach Nginx status endpoint. Network may not be ready. Using fallback RPS",
-                    ex
-            );
-
+            log.warn("Unable to reach Nginx status endpoint. Network may not be ready. Using fallback RPS", ex);
             return lastCount > 0 ? (lastCount / 100.0) : 0;
-
         } catch (Exception ex) {
             log.error("Failed to collect Nginx metrics. Returning RPS=0", ex);
             return 0;

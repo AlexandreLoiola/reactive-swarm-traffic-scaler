@@ -8,11 +8,20 @@ import org.springframework.stereotype.Component;
 @Log4j2
 public class ScalingPolicy {
 
-    @Value("${autoscaler.scaling.scale-up-rps-threshold:50}")
-    private double scaleUpRpsThreshold;
+    @Value("${autoscaler.capacity.max-rps-per-instance:100}")
+    private double maxSafeRpsPerInstance;
 
-    @Value("${autoscaler.scaling.scale-down-rps-threshold:15}")
-    private double scaleDownRpsThreshold;
+    @Value("${autoscaler.target.utilization:0.7}")
+    private double targetUtilization;
+
+    @Value("${autoscaler.scale-up.aggressiveness:2.0}")
+    private double scaleUpAggressiveness;
+
+    @Value("${autoscaler.scale-down.conservativeness:0.3}")
+    private double scaleDownConservativeness;
+
+    @Value("${autoscaler.scale-down.dead-zone:0.15}")
+    private double scaleDownDeadZone;
 
     @Value("${autoscaler.scaling.min-instances:1}")
     private int minInstances;
@@ -20,44 +29,96 @@ public class ScalingPolicy {
     @Value("${autoscaler.scaling.max-instances:10}")
     private int maxInstances;
 
-    public ScalingDecisionEnum evaluate(double avgRps, int instances) {
+    @Value("${autoscaler.scale-down.damping-factor:2.0}")
+    private double scaleDownDampingFactor;
 
-        if (instances <= 0) {
-            log.warn("Invalid instance count: {}", instances);
-            return ScalingDecisionEnum.DO_NOTHING;
+    private int consecutiveLowUtilizationSamples = 0;
+
+    @Value("${autoscaler.scale-down.stability-threshold:5}")
+    private int requiredStableSamples;
+
+    public ScalingDecision evaluate(double totalAverageRps, int currentInstances) {
+        if (currentInstances <= 0) {
+            log.warn("Invalid instance count: {}", currentInstances);
+            return noScalingDecision();
         }
 
-        double rpsPerInstance = avgRps / instances;
+        double currentUtilization = calculateCurrentUtilization(totalAverageRps, currentInstances);
+        double utilizationDelta = currentUtilization - targetUtilization;
 
-        if (rpsPerInstance > scaleUpRpsThreshold && instances < maxInstances) {
-            log.info(
-                    "Scale up triggered. rpsPerInstance={} exceeds threshold={} (totalRps={}, instances={})",
-                    round(rpsPerInstance),
-                    scaleUpRpsThreshold,
-                    round(avgRps),
-                    instances
+        if (shouldScaleUp(utilizationDelta, currentInstances)) {
+            consecutiveLowUtilizationSamples = 0;
+            return buildScaleUpDecision(utilizationDelta, currentInstances, currentUtilization);
+        }
+
+        if (shouldScaleDown(utilizationDelta, currentInstances)) {
+            consecutiveLowUtilizationSamples++;
+
+            if (consecutiveLowUtilizationSamples >= requiredStableSamples) {
+                return buildScaleDownDecision(utilizationDelta, currentInstances, currentUtilization);
+            }
+            log.debug("Scale down suppressed: low utilization detected but not stable yet ({}/{})",
+                    consecutiveLowUtilizationSamples, requiredStableSamples
             );
-            return ScalingDecisionEnum.SCALE_UP;
+        } else {
+            consecutiveLowUtilizationSamples = 0;
         }
 
-        if (rpsPerInstance < scaleDownRpsThreshold && instances > minInstances) {
-            log.info(
-                    "Scale down triggered. rpsPerInstance={} below threshold={} (totalRps={}, instances={})",
-                    round(rpsPerInstance),
-                    scaleDownRpsThreshold,
-                    round(avgRps),
-                    instances
-            );
-            return ScalingDecisionEnum.SCALE_DOWN;
-        }
+        return noScalingDecision();
+    }
 
-        log.debug(
-                "No scaling action required. rpsPerInstance={}, totalRps={}, instances={}",
-                round(rpsPerInstance),
-                round(avgRps),
-                instances
+    private boolean shouldScaleUp(double utilizationDelta, int currentInstances) {
+        return utilizationDelta > 0 && currentInstances < maxInstances;
+    }
+
+    private boolean shouldScaleDown(double utilizationDelta, int currentInstances) {
+        return utilizationDelta < -scaleDownDeadZone && currentInstances > minInstances;
+    }
+
+    private ScalingDecision buildScaleUpDecision(
+            double utilizationDelta,
+            int currentInstances,
+            double currentUtilization
+    ) {
+        int instancesToAdd = calculateInstancesToAdd(utilizationDelta, currentInstances);
+        log.info("Scale UP: utilization={} target={} delta={} adding={} instances",
+                round(currentUtilization), targetUtilization, round(utilizationDelta), instancesToAdd
         );
-        return ScalingDecisionEnum.DO_NOTHING;
+        return new ScalingDecision(ScalingDecisionEnum.SCALE_UP, instancesToAdd);
+    }
+
+    private ScalingDecision buildScaleDownDecision(
+            double utilizationDelta,
+            int currentInstances,
+            double currentUtilization
+    ) {
+        int instancesToRemove = calculateInstancesToRemove(utilizationDelta, currentInstances);
+        log.info("Scale DOWN: utilization={} target={} delta={} removing={} instances",
+                round(currentUtilization), targetUtilization, round(utilizationDelta), instancesToRemove
+        );
+        return new ScalingDecision(ScalingDecisionEnum.SCALE_DOWN, instancesToRemove);
+    }
+
+    private double calculateCurrentUtilization(double totalAverageRps, int currentInstances) {
+        double rpsPerInstance = totalAverageRps / currentInstances;
+        return rpsPerInstance / maxSafeRpsPerInstance;
+    }
+
+    private int calculateInstancesToAdd(double utilizationDelta, int currentInstances) {
+        int instancesToAdd = (int) Math.ceil(scaleUpAggressiveness * utilizationDelta * currentInstances);
+        return Math.min(instancesToAdd, maxInstances - currentInstances);
+    }
+
+    private int calculateInstancesToRemove(double utilizationDelta, int currentInstances) {
+        double underUtilization = Math.abs(utilizationDelta);
+        double dampedFactor = Math.pow(underUtilization, 1.0 / scaleDownDampingFactor);
+        int instancesToRemove = (int) Math.floor(dampedFactor * scaleDownConservativeness * currentInstances);
+
+        return Math.min(Math.max(instancesToRemove, 1), currentInstances - minInstances);
+    }
+
+    private ScalingDecision noScalingDecision() {
+        return new ScalingDecision(ScalingDecisionEnum.DO_NOTHING, 0);
     }
 
     private double round(double value) {
