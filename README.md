@@ -1,4 +1,4 @@
-# Reactive Swarm Traffic Scaler
+<div align="center"><h1>Reactive Swarm Traffic Scaler</h1></div>
 
 # 1. Introdução
 
@@ -22,8 +22,6 @@ Para atingir o objetivo central, o projeto se baseia nos seguintes pilares de im
 - **Otimização do Escoamento de Tráfego:** Implementar mecanismos de descoberta de serviços e persistência de conexões (Connection Pooling) para garantir que a redistribuição de carga entre as novas unidades de processamento ocorra sem latência residual.
 - **Gerenciamento de Cotas de Recursos:** Analisar o comportamento do ambiente de execução sob limites rígidos de hardware, ajustando parâmetros de memória e processamento para garantir a resiliência operacional e evitar interrupções abruptas por exaustão de recursos.
 - **Análise de Saturação e Performance:** Mensurar a capacidade máxima do sistema e identificar o ponto de "retorno decrescente", onde o acréscimo de novas unidades de processamento deixa de resultar em ganhos proporcionais de performance.
-
----
 
 ## 1.4 Vetores de Investigação Técnica:
 
@@ -52,8 +50,6 @@ A metodologia adotada para este estudo baseia-se em um ciclo experimental contro
 
 ### 1.5.4 Ciclo de Decisão e Ajuste (Feedback)
 - A etapa final da metodologia é o fechamento do ciclo de controle. Com base nas métricas coletadas, um motor de decisão avalia se o sistema deve expandir sua capacidade (adicionando novas unidades de processamento) ou contraí-la (removendo unidades ociosas). A análise foca na precisão e na velocidade dessa resposta, buscando minimizar o tempo de exposição do sistema a estados de sobrecarga.
-
----
 
 # 2. Arquitetura do Sistema
 A arquitetura foi desenhada seguindo o modelo de Sistemas Autonômicos, onde o controle é exercido por um loop fechado de retroalimentação. O sistema é decomposto em três camadas lógicas que interagem de forma coordenada.
@@ -94,6 +90,196 @@ Esta camada é composta pelas unidades fundamentais de processamento onde a lóg
 - **Alvo de Estresse e Análise:** Esta é a camada que recebe o impacto direto da estimulação de carga. Ela funciona como o objeto de estudo principal, onde o comportamento do tempo de resposta e a taxa de erro são analisados para validar se a aplicação consegue manter a estabilidade enquanto opera próxima ao seu limite de saturação.
 
 # 3. Modelo de Controle e Lógica de Decisão
+O núcleo do projeto reside no modelo de controle reativo, que transforma telemetria em ações de infraestrutura. O objetivo deste capítulo é formalizar as regras lógicas e os algoritmos que garantem a estabilidade do sistema sob carga.
+
+## 3.1 Processamento de Telemetria
+A métrica primária utilizada pelo controlador é a taxa média de requisições por segundo (RPS), derivada a partir de contadores cumulativos expostos pelo ponto de observabilidade do Ingress. 
+
+A transformação de contadores em taxas é realizada por diferenciação temporal explícita, garantindo que o sinal de entrada do controlador represente a intensidade instantânea de carga, e não valores históricos acumulados.
+
+## 3.2 Modelo de Utilização e Capacidade
+O controlador adota um modelo determinístico de capacidade, no qual cada instância possui uma vazão máxima segura previamente estimada. A utilização do sistema é definida como a razão entre a carga média por instância e essa capacidade segura, permitindo que decisões de escalonamento sejam tomadas com base em limites estáveis e previsíveis.
+
+## 3.3 Algoritmo de Escalonamento
+O algoritmo de escalonamento constitui a lógica operacional que traduz indicadores de carga em decisões de infraestrutura. Diferente de uma resposta linear simples, este modelo busca equilibrar a agilidade da expansão (para proteger a disponibilidade) com a cautela da contração (para preservar a estabilidade). O objetivo primordial é converter a variabilidade do tráfego em uma topologia de rede que se ajuste dinamicamente, mantendo o sistema operando dentro de uma janela de eficiência onde o custo de computação e o desempenho de resposta estejam otimizados.
+
+### 3.3.1 Scale-Up Proporcional
+A expansão de capacidade segue um modelo proporcional ao erro de utilização, permitindo que o sistema reaja rapidamente a eventos de saturação. 
+
+Essa decisão prioriza a redução imediata da pressão sobre cada unidade de processamento, aceitando maior agressividade no crescimento em troca de estabilidade operacional.
+
+### 3.3.2 Scale-Down Amortecido + Temporal
+O processo de contração de capacidade incorpora múltiplos mecanismos de estabilização: 
+- Uma zona morta para absorção de ruído
+- Uma função de amortecimento não linear para suavização da magnitude da decisão
+- Um critério de estabilidade temporal baseado em amostras consecutivas de baixa utilização. 
+
+Essa combinação reduz significativamente o risco de `thrashing` e preserva a capacidade do sistema de absorver picos subsequentes sem degradação perceptível.
+
+## 3.4 Temporização e Estados de Transição
+Após cada ação de escalonamento, o sistema entra em um estado de repouso forçado (cooldown), durante o qual novas decisões são suprimidas. Esse mecanismo garante que o impacto real da alteração de capacidade seja observado antes de qualquer nova intervenção, respeitando o tempo de aquecimento das instâncias e a latência do orquestrador.
+
+## 3.5 Limitações do Modelo
+Esta seção detalha os fatores intrínsecos e extrínsecos que restringem a capacidade de resposta do sistema, servindo como um guia para a interpretação dos resultados experimentais e para a identificação de cenários onde o modelo pode apresentar comportamentos sub-otimizados.
+
+Como qualquer sistema baseado em loops de controle reativos, este modelo possui fronteiras de eficácia delimitadas por suas próprias premissas de design. Reconhecer essas limitações é fundamental para compreender em quais cenários a automação oferece resiliência e onde ela atinge o seu ponto de saturação técnica. 
+
+### 3.5.1 Limitação 1 — Métrica Única de Decisão (RPS)
+O modelo de controle adotado neste estudo utiliza exclusivamente a taxa de requisições por segundo (RPS) como sinal primário de carga. Embora essa métrica seja adequada para capturar a pressão externa exercida sobre o sistema, ela não reflete diretamente o custo computacional individual de cada requisição. Assim, diferentes perfis de carga podem produzir sinais de RPS semelhantes, apesar de apresentarem impactos significativamente distintos sobre os recursos internos das instâncias.
+
+### 3.5.2 Limitação 2 — Capacidade Estática por Instância
+A política de escalonamento assume uma capacidade máxima segura fixa para cada instância de processamento. Essa simplificação implica que todas as unidades são consideradas homogêneas e que sua capacidade permanece constante ao longo do tempo. Na prática, fatores como aquecimento do runtime, coleta de lixo e contenção de recursos no host podem introduzir variações temporais que não são capturadas por esse modelo.
+
+### 3.5.3 Limitação 3 — Controle Reativo Não Preditivo
+O controlador implementado adota uma abordagem estritamente reativa, tomando decisões apenas com base no estado atual do sistema. Como consequência, o escalonamento ocorre somente após a detecção efetiva de saturação, o que implica a existência de uma janela temporal na qual o sistema pode operar sob carga elevada antes que novas instâncias estejam plenamente disponíveis.
+
+### 3.5.4 Limitação 4 — Latência de Provisionamento e Warm-up
+A eficácia do escalonamento é fortemente impactada pela latência de provisionamento das instâncias. Mesmo após a decisão de expansão, existe um intervalo não desprezível até que as novas réplicas estejam prontas para atender requisições de forma eficiente. Esse período de aquecimento representa um limite físico do modelo, especialmente relevante em cenários de picos abruptos de tráfego.
+
+### 3.5.5 Limitação 5 — Escopo Restrito ao Plano de Dados
+Este estudo restringe deliberadamente o domínio de escalonamento à camada de processamento da aplicação. Componentes como o serviço de decisão e a camada de intermediação são tratados como estáticos e fora do escopo de falhas analisado, o que simplifica o modelo, mas limita sua aplicabilidade em cenários de produção de grande escala.
+
+### 3.5.6 Síntese
+As limitações apresentadas não invalidam os resultados obtidos, mas delimitam claramente o contexto no qual o modelo se mostra eficaz. O objetivo deste trabalho não é propor um sistema de escalonamento universal, mas sim analisar, de forma controlada e empírica, os efeitos de um loop de controle reativo simples, interpretável e estável em um ambiente de recursos restritos.
+
+## 3.6 Formalização Matemática do Modelo de Controle
+Esta seção apresenta a formalização matemática do modelo de controle implementado, estabelecendo explicitamente as variáveis, funções e transformações utilizadas pelo sistema para converter sinais de carga em decisões de escalonamento. O objetivo é tornar explícitas as hipóteses e os cálculos subjacentes à lógica descrita nas seções anteriores.
+
+### 3.6.1 Variáveis e Parâmetros do Sistema
+Sejam definidas as seguintes variáveis de estado e parâmetros de controle:
+
+- R(t): taxa média total de requisições por segundo observada no instante 𝑡
+- N(t): número de instâncias ativas no instante 𝑡
+- C(max): capacidade máxima segura de uma instância (RPS)
+- U(t): utilização normalizada do sistema
+- U(target): utilização alvo configurada
+- N(min),N(max): limites inferior e superior de instâncias
+
+Parâmetros de controle adicionais:
+
+- 𝛼: fator de agressividade de scale-up
+- β: fator de conservadorismo de scale-down
+- δ: largura da zona morta
+- γ: fator de amortecimento não linear
+
+### 3.6.2 Cálculo da Utilização Normalizada
+A carga média por instância é definida como:
+
+$$
+r_i(t) = \frac{R(t)}{N(t)}
+$$
+
+A utilização normalizada do sistema é então calculada por:
+
+$$
+U(t) = \frac{r_i(t)}{C_{\text{max}}}
+     = \frac{R(t)}{N(t) \cdot C_{\text{max}}}
+$$
+
+Essa normalização permite que o controlador opere de forma independente da escala absoluta de tráfego e do número de instâncias ativas.
+
+### 3.6.3 Erro de Controle (Delta de Utilização)
+O erro de controle é definido como a diferença entre a utilização observada e a utilização alvo:
+
+$$
+\Delta U(t) = U(t) - U_{\text{target}}
+$$
+
+Esse termo representa a magnitude e a direção da correção necessária:
+
+- ΔU(t)>0: sistema sobrecarregado
+- ΔU(t)<0: sistema subutilizado
+
+### 3.6.4 Função de Decisão de Scale-Up
+A expansão de capacidade ocorre quando o erro de utilização é positivo e o sistema não atingiu o limite máximo de instâncias:
+
+$$
+\text{Scale-Up} \iff
+\begin{cases}
+\Delta U(t) > 0 \\
+N(t) < N_{\max}
+\end{cases}
+$$
+
+O número de instâncias adicionadas é calculado por um modelo proporcional:
+$$
+\Delta N^{+}(t) =
+\left\lceil
+\alpha \cdot \Delta U(t) \cdot N(t)
+\right\rceil
+$$
+
+Com saturação superior:
+$$
+\Delta N^{+}(t) \leq N_{\max} - N(t)
+$$
+
+Esse modelo permite crescimento mais agressivo à medida que o sistema escala, favorecendo a proteção da disponibilidade durante picos abruptos de carga.
+
+### 3.6.5 Função de Decisão de Scale-Down Amortecido
+A contração de capacidade ocorre apenas quando a subutilização excede a zona morta configurada:
+
+$$
+\text{Scale-Down} \iff
+\begin{cases}
+\Delta U(t) < -\delta \\
+N(t) > N_{\min}
+\end{cases}
+$$
+
+Define-se inicialmente a subutilização absoluta:
+$$
+U_{\text{under}}(t) = |\Delta U(t)|
+$$
+
+Aplica-se então um amortecimento não linear:
+$$
+D(t) = U_{\text{under}}(t)^{\frac{1}{\gamma}}
+$$
+
+
+O número de instâncias removidas é dado por:
+$$
+\Delta N^{-}(t) =
+\left\lfloor
+D(t) \cdot \beta \cdot N(t)
+\right\rfloor
+$$
+
+Com restrições:
+$$
+1 \leq \Delta N^{-}(t) \leq N(t) - N_{\min}
+$$
+
+Esse mecanismo reduz a sensibilidade do sistema a pequenas flutuações de carga e previne reduções agressivas prematuras.
+
+### 3.6.6 Evolução Discreta do Estado do Sistema
+
+O sistema evolui em tempo discreto, sendo o número de instâncias atualizado conforme a decisão tomada:
+
+$$
+N(t+1) =
+\begin{cases}
+N(t) + \Delta N^{+}(t), & \text{se Scale-Up} \\
+N(t) - \Delta N^{-}(t), & \text{se Scale-Down} \\
+N(t), & \text{caso contrário}
+\end{cases}
+$$
+
+Após cada transição de estado, o controlador entra em um período de inatividade forçada (cooldown), durante o qual novas decisões são suprimidas.
+
+### 3.6.7 Classificação do Controlador
+Do ponto de vista de sistemas de controle, o modelo pode ser caracterizado como:
+
+- Controlador proporcional assimétrico
+- Operando em tempo discreto
+- Com saturação, zona morta e amortecimento não linear
+- Sujeito a atraso de atuação (latência de provisionamento)
+
+Embora não seja preditivo nem ótimo no sentido clássico, o modelo privilegia interpretabilidade, estabilidade e robustez operacional em ambientes de recursos limitados.
+
+---
+
 # 4. Implementação e Configuração do Ambiente
 # 5. Sintese e Análise dos Resultados
 # 6. Conclusão
