@@ -20,6 +20,10 @@ services:
     
   autoscaler:
     image: autoscaler
+    user: root
+    privileged: true
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:z
     deploy:
       placement:
         constraints:

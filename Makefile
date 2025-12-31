@@ -11,7 +11,18 @@ build:
 	docker build -t nginx-lb ./nginx
 
 deploy:
-	docker stack deploy -c docker-compose.yml $(PROJECT)
+	@echo "Deploying stack $(PROJECT)..."
+	@for i in 1 2 3 4 5; do \
+		docker stack deploy -c docker-compose.yml $(PROJECT) && break; \
+		echo "Deploy failed (attempt $$i). Retrying in 2s..."; \
+		sleep 2; \
+	done
+	@if [ "$$(getenforce 2>/dev/null)" = "Enforcing" ]; then \
+		echo "SELinux enforcing detected. Switching to permissive mode..."; \
+		sudo setenforce 0; \
+	else \
+		echo "SELinux already permissive or disabled."; \
+	fi
 
 down:
 	docker stack rm $(PROJECT)
