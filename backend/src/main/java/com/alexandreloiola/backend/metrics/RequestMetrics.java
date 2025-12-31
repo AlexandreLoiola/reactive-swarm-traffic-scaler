@@ -4,22 +4,21 @@ import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
-import org.springframework.stereotype.Component;
+import jakarta.inject.Inject;
+import jakarta.inject.Singleton;
 
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 
-@Component
+@Singleton
 public class RequestMetrics {
 
-    private final AtomicInteger activeRequests;
-
+    private final AtomicInteger activeRequests = new AtomicInteger(0);
     private final Counter totalRequests;
     private final Timer requestLatency;
 
+    @Inject
     public RequestMetrics(MeterRegistry registry) {
-        this.activeRequests = new AtomicInteger(0);
-
         this.totalRequests = Counter.builder("app.requests.total")
                 .description("Total number of processed requests")
                 .register(registry);

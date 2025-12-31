@@ -4,25 +4,27 @@ import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
-import org.springframework.stereotype.Component;
+import jakarta.inject.Inject;
+import jakarta.inject.Singleton;
 
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 
-@Component
+@Singleton
 public class LoadMetrics {
 
     private final AtomicInteger activeRequests = new AtomicInteger();
     private final Counter totalRequests;
     private final Timer processingTimer;
 
+    @Inject
     public LoadMetrics(MeterRegistry registry) {
-        this.totalRequests = Counter.builder("app.requests.total")
-                .description("Total requests processed")
+        this.totalRequests = Counter.builder("app.load.total")
+                .description("Total requests processed for load")
                 .register(registry);
 
-        this.processingTimer = Timer.builder("app.requests.latency")
-                .description("Request processing latency")
+        this.processingTimer = Timer.builder("app.load.latency")
+                .description("Request processing latency for load")
                 .register(registry);
 
         Gauge.builder("app.load.pressure", activeRequests,
