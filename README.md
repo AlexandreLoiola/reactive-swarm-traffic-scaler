@@ -4,7 +4,7 @@
 
 ## 1.1 Visão Geral:
 
-Este projeto consiste em uma investigação **experimental e analítica** sobre a resiliência e a elasticidade de sistemas distribuídos. O foco principal é o estudo de **loops de controle adaptativos** (*Self-Adaptive Control Loops*) aplicados a clusters de orquestração, observando como o software pode manter a estabilidade e a disponibilidade sob regimes de alta carga em ambientes de **recursos computacionais restritos**.
+Este projeto consiste em uma investigação **experimental e analítica** sobre a resiliência e a elasticidade de sistemas distribuídos. O foco principal é o estudo de **loops de controle reativos** (*Self-Adaptive Control Loops*) aplicados a clusters de orquestração, observando como o software pode manter a estabilidade e a disponibilidade sob regimes de alta carga em ambientes de **recursos computacionais restritos**.
 
 Diferente de soluções de escalonamento prontas (como o HPA do Kubernetes), este projeto implementa um motor de decisão customizado que consome telemetria em tempo real para orquestrar o estado do cluster **Docker Swarm**, priorizando a previsibilidade e a análise empírica dos *trade-offs* entre latência, *throughput* e custo de infraestrutura.
 
@@ -148,19 +148,19 @@ Esta seção apresenta a formalização matemática do modelo de controle implem
 ### 3.6.1 Variáveis e Parâmetros do Sistema
 Sejam definidas as seguintes variáveis de estado e parâmetros de controle:
 
-- R(t): taxa média total de requisições por segundo observada no instante 𝑡
-- N(t): número de instâncias ativas no instante 𝑡
-- C(max): capacidade máxima segura de uma instância (RPS)
-- U(t): utilização normalizada do sistema
-- U(target): utilização alvo configurada
-- N(min),N(max): limites inferior e superior de instâncias
+- $R(t)$: taxa média total de requisições por segundo observada no instante 𝑡
+- $N(t)$: número de instâncias ativas no instante 𝑡
+- $C(max)$: capacidade máxima segura de uma instância (RPS)
+- $U(t)$: utilização normalizada do sistema
+- $U(target)$: utilização alvo configurada
+- $N(min)$,$N(max)$: limites inferior e superior de instâncias
 
 Parâmetros de controle adicionais:
 
-- 𝛼: fator de agressividade de scale-up
-- β: fator de conservadorismo de scale-down
-- δ: largura da zona morta
-- γ: fator de amortecimento não linear
+- $𝛼$: fator de agressividade de scale-up
+- $β$: fator de conservadorismo de scale-down
+- $δ$: largura da zona morta
+- $γ$: fator de amortecimento não linear
 
 ### 3.6.2 Cálculo da Utilização Normalizada
 A carga média por instância é definida como:
@@ -278,8 +278,80 @@ Do ponto de vista de sistemas de controle, o modelo pode ser caracterizado como:
 
 Embora não seja preditivo nem ótimo no sentido clássico, o modelo privilegia interpretabilidade, estabilidade e robustez operacional em ambientes de recursos limitados.
 
----
+# 4. Configuração do Ambiente e Implementação
+Este capítulo detalha a materialização técnica do modelo de controle discutido anteriormente. A escolha das ferramentas baseou-se na necessidade de componentes que permitissem o isolamento estrito de recursos, a exposição de telemetria de alta fidelidade e o máximo de escalabilidade possível.
 
-# 4. Implementação e Configuração do Ambiente
+## 4.1 Pilha Técnica
+
+### 4.1.1 Orquestrador: Docker Swarm (Infraestrutura)
+O Docker Swarm é a ferramenta responsável por transformar um conjunto de máquinas ou recursos em um único cluster gerenciável, ou seja, um agrupamento de nós que operam de forma coordenada, possibilitando que o sistema seja percebido e gerenciado como uma única infraestrutura 
+
+- **Orquestração e Execução:** Gerencia o estado desejado dos serviços, garantindo que o número de instâncias ativas reflita as decisões de escalonamento $(ΔN(t))$ definidas pelo controlador.
+- **Hospedagem de Containers:** Fornece o ambiente necessário para executar aplicações de forma isolada, permitindo a utilização de containers como unidades de execução.
+- **Elasticidade Dinâmica:** Permite a criação rápida de novas instâncias quando a carga aumenta, assegurando suporte ao scale-out e manutenção da disponibilidade do sistema.
+- **Monitoramento de Saúde:** Detecta falhas em instâncias e garante que apenas unidades saudáveis estejam ativas, preservando a estabilidade do cluster.
+- **Gerenciamento de Cluster:** Coordena múltiplos nós como uma infraestrutura única e unificada, simplificando a administração de recursos distribuídos.
+
+### 4.1.2 Controlador: Spring Boot (Loop de Decisão)
+O Controlador é o componente central responsável por transformar sinais de telemetria em ações de escalonamento no cluster Docker Swarm. Ele implementa o loop de controle reativo, consumindo métricas em tempo real e determinando quando realizar operações de expansão ou contração de instâncias. 
+
+- **Processamento de Telemetria:** Recebe métricas da camada de intermediação (Ingress) e calcula indicadores como RPS e latência média, convertendo dados brutos em sinais de controle acionáveis.
+- **Lógica de Escalonamento:** Baseado em limiares e zonas mortas, emite comandos de Scale-Up e Scale-Down de forma proporcional e amortecida, preservando estabilidade e prevenindo thrashing.
+- **Integração com Orquestrador:** Comunica-se com o Docker Swarm através de uma API ou interface de gerenciamento, aplicando mudanças de forma segura e controlada.
+- **Período de Estabilização (Cooldown):** Impõe intervalos entre decisões sucessivas para permitir o aquecimento das novas instâncias e a estabilização do sistema antes de novas ações.
+
+### 4.1.3 Gateway e Balanceador de Carga: Nginx (Intermediação)
+O Nginx atua como gateway de entrada e balanceador de carga, sendo responsável por rotear o tráfego externo para as instâncias disponíveis da aplicação Quarkus.
+
+- **Balanceamento de Carga:** Distribui requisições de forma eficiente entre múltiplas instâncias, mantendo o throughput alto e evitando sobrecarga em qualquer unidade.
+- **Persistência de Conexões (Keep-Alive):** Mantém conexões TCP ativas para reduzir a latência de novas requisições e minimizar o overhead de handshake, essencial durante processos de scale-out.
+- **Monitoramento Passivo:** Expondo métricas de acesso e saúde de conexões, fornece sinais para o controlador, contribuindo para decisões de escalonamento mais precisas.
+- **Resiliência e Isolamento:** Funciona como camada de proteção, garantindo que instâncias de aplicação não sejam acessadas diretamente, preservando a integridade e o isolamento do cluster.
+
+### 4.1.4 Alvo de Elasticidade: Quarkus (Aplicação)
+O Quarkus foi escolhido como alvo de elasticidade por ser um framework Java orientado a arquiteturas Cloud Native, otimizado para inicialização rápida e baixo consumo de recursos. 
+
+- **Eficiência em Confinamento:** O Quarkus permite que aplicações operem com uso reduzido de memória heap e menor quantidade de threads, tornando-o ideal para execução em ambientes conteinerizados e com recursos limitados.
+- **Responsividade:** A velocidade inicialização do Quarkus favorece a rápida criação e disponibilização de novas instâncias, aspecto essencial em ambientes elásticos, pois diminui a janela de exposição a falhas durante processos de scale-out.
+- **Execução em Modo Nativo (GraalVM):** Embora o processo de build seja mais custoso, a geração de um binário nativo permite inicializações quase instantâneas e um perfil de memória mais previsível, tornando o Quarkus particularmente adequado para cenários de elasticidade agressiva e ambientes com recursos severamente restritos.
+
+## 4.2 Configuração do Ambiente Restrito
+Conforme definido no objetivo central, o ambiente de execução foi configurado para operar em um ambiente de execução com recursos deliberadamente restritos. Foram aplicadas restrições em duas camadas: na orquestração (infraestrutura) e no nível do processo da aplicação.
+
+### 4.1.1 Isolamento Via Orquestrador
+Através do arquivo de definição do orquestração, foram impostos limites rígidos que forçam a aplicação a atingir o seu ponto de saturação precocemente:
+
+```YAML
+services:
+  backend:
+    image: java-backend
+    deploy:
+      resources:
+        limits:
+          cpus: '0.50'     # Limite de 50% de um núcleo (Throttling)
+          memory: 512M     # Capping de memória
+        reservations:
+          cpus: '0.25'     # Garantia mínima de recurso
+          memory: 256M     # Reserva mínima
+```
+
+### 4.1.2 Ajuste Fino a nível de aplicação
+Para garantir que a aplicação opere e performe de forma estável dentro deste "confinamento", o arquivo `application.properties` foi ajustado para limitar o uso de threads e gerenciar o heap de memória de forma conservadora. Isso evita que o runtime tente alocar mais recursos do que o Docker permite, o que causaria instabilidade imediata.
+
+```Properties
+# Limitação de concorrência no nível da aplicação
+quarkus.http.io-threads=2
+quarkus.http.worker-threads=8
+
+# Contrato de memória explícito
+quarkus.native.initial-heap-size=64m
+quarkus.native.max-heap-size=128m
+```
+
+- **Minimização de Threads:** Ao restringir o número de worker threads, evitamos o custo excessivo de troca de contexto em uma CPU limitada a 0.5 cores.
+- **Gestão de Memória:** O limite de heap em 128MB, dentro de um container de 512MB, deixa margem de segurança para a memória off-heap e para o próprio sistema operacional, reduzindo drasticamente o risco de erros de Out of Memory (OOM).
+
+## 4.3 Decisões Arquiteturais de Infraestrutura
+
 # 5. Sintese e Análise dos Resultados
 # 6. Conclusão
