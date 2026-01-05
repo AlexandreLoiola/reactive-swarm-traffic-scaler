@@ -1,0 +1,25 @@
+{
+  "title": "Autoscaling Overview",
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Backend CPU (avg)",
+      "targets": [
+        {
+          "expr": "avg(app_process_cpu_load)",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Nginx RPS",
+      "targets": [
+        {
+          "expr": "sum(rate(nginx_http_requests_total[5s]))",
+          "refId": "B"
+        }
+      ]
+    }
+  ]
+}

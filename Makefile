@@ -6,7 +6,7 @@ RESULTS=./performance/jmeter/reports/results.jtl
 HTML_REPORT=./performance/jmeter/reports/html
 
 build:
-	docker build -f ./app/src/main/docker/Dockerfile.native-micro -t java-backend ./app
+	docker build -f backend/src/main/docker/Dockerfile.native-micro -t java-backend ./backend	
 	docker build -t autoscaler ./autoscaler
 	docker build -t nginx-lb ./nginx
 

@@ -1,0 +1,24 @@
+global:
+  scrape_interval: 5s
+
+scrape_configs:
+
+  - job_name: 'backend'
+    dns_sd_configs:
+      - names:
+          - backend
+        type: A
+        port: 8080
+    metrics_path: /q/metrics
+
+  - job_name: 'autoscaler'
+    static_configs:
+      - targets:
+          - autoscaler:8080
+    metrics_path: /actuator/prometheus
+
+  - job_name: 'nginx'
+    static_configs:
+      - targets:
+          - nginx:80
+    metrics_path: /nginx_status
