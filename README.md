@@ -351,7 +351,51 @@ quarkus.native.max-heap-size=128m
 - **Minimização de Threads:** Ao restringir o número de worker threads, evitamos o custo excessivo de troca de contexto em uma CPU limitada a 0.5 cores.
 - **Gestão de Memória:** O limite de heap em 128MB, dentro de um container de 512MB, deixa margem de segurança para a memória off-heap e para o próprio sistema operacional, reduzindo drasticamente o risco de erros de Out of Memory (OOM).
 
-## 4.3 Decisões Arquiteturais de Infraestrutura
+## 4.3 Implementação de Loop de Controle Reativo
+
+## 4.4 Implementação da Aplicação Alvo de Elasticidade
+A aplicação foi projetada para expor um único endpoint, responsável por acionar uma rotina de simulação de trabalho síncrona a cada requisição. O ponto de entrada é um endpoint REST acessível via método GET na rota `api/load`..
+
+### 4.4.1 Simulação de Trabalho Computacional e Latência
+Cada requisição executa uma rotina de carga sintética que combina processamento intensivo (CPU-bound) e espera bloqueante (I/O-bound). Essa alternância permite simular de forma realista cenários de saturação e contenção de recursos.
+
+O consumo de CPU é implementado por meio de um laço baseado em tempo (busy-wait), mantendo o processador ocupado com cálculos matemáticos por um intervalo pseudoaleatório:
+
+```java
+private void simulateCpu() {
+    long end = System.nanoTime() +
+        (200_000_000L + random.nextInt(100_000_000));
+
+    while (System.nanoTime() < end) {
+        Math.log(random.nextDouble() + 1);
+    }
+}
+```
+- O consumo de CPU é implementado por meio de um laço baseado em tempo, mantendo o processador ocupado por um intervalo pseudoaleatório:
+
+```java
+private void simulateIo() {
+    Thread.sleep(100 + random.nextInt(100));
+}
+```
+- A latência de I/O é simulada através de uma pausa bloqueante:
+
+### 4.4.2 Métricas Expostas
+O conjunto de métricas expostas prioriza indicadores de carga, latência e consumo de CPU. Tal configuração facilita o diagnóstico de impactos causados por CPU throttling e pelo confinamento de recursos do orquestrador.
+
+- **`app_load_requests_total`**: Contador cumulativo do número total de requisições processadas pelo endpoint de carga.
+
+- **`app_load_errors_total`**: Contador cumulativo de erros ocorridos durante a execução da rotina de carga.
+
+- **`app_load_execution_time`**: Temporizador (Timer) do tempo de execução da rotina de simulação de carga, com publicação dos percentis p50, p95 e p99.
+
+- **`app_process_cpu_load`**: Representa a carga de CPU específica do processo da JVM.
+
+- **`app_system_cpu_load`**: Indica a carga total de CPU de todo o sistema operacional onde o contêiner reside.
+
+- **`app_available_processors`**: Número de processadores disponíveis para a JVM.
+
+
 
 # 5. Sintese e Análise dos Resultados
 # 6. Conclusão
