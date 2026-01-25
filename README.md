@@ -165,34 +165,40 @@ Parâmetros de controle adicionais:
 ### 3.6.2 Cálculo da Utilização Normalizada
 A carga média por instância é definida como:
 
+##### **Equação (3.6.1) – Carga média por instância**
 $$
 r_i(t) = \frac{R(t)}{N(t)}
 $$
 
 A utilização normalizada do sistema é então calculada por:
 
+##### **Equação (3.6.2) – Utilização normalizada do sistema**
 $$
 U(t) = \frac{r_i(t)}{C_{\text{max}}}
      = \frac{R(t)}{N(t) \cdot C_{\text{max}}}
 $$
 
-Essa normalização permite que o controlador opere de forma independente da escala absoluta de tráfego e do número de instâncias ativas.
+Essa normalização permite que o controlador opere de forma independente da escala absoluta de tráfego e do número de instâncias ativas, conforme definido na Equação (3.6.2).
 
 ### 3.6.3 Erro de Controle (Delta de Utilização)
 O erro de controle é definido como a diferença entre a utilização observada e a utilização alvo:
 
+##### **Equação (3.6.3) – Erro de controle**
 $$
 \Delta U(t) = U(t) - U_{\text{target}}
 $$
 
 Esse termo representa a magnitude e a direção da correção necessária:
 
-- ΔU(t)>0: sistema sobrecarregado
-- ΔU(t)<0: sistema subutilizado
+- $ΔU(t)>0$: sistema sobrecarregado
+- $ΔU(t)<0$: sistema subutilizado
 
 ### 3.6.4 Função de Decisão de Scale-Up
 A expansão de capacidade ocorre quando o erro de utilização é positivo e o sistema não atingiu o limite máximo de instâncias:
 
+A expansão de capacidade ocorre quando as condições abaixo são simultaneamente satisfeitas:
+
+##### **Equação (3.6.4) – Condição de scale-up**
 $$
 \text{Scale-Up} \iff
 \begin{cases}
@@ -202,6 +208,8 @@ N(t) < N_{\max}
 $$
 
 O número de instâncias adicionadas é calculado por um modelo proporcional:
+
+##### **Equação (3.6.5) – Incremento de instâncias**
 $$
 \Delta N^{+}(t) =
 \left\lceil
@@ -209,16 +217,19 @@ $$
 \right\rceil
 $$
 
-Com saturação superior:
+Com saturação superior imposta por:
+
+##### **Equação (3.6.6) – Saturação de scale-up**
 $$
 \Delta N^{+}(t) \leq N_{\max} - N(t)
 $$
 
-Esse modelo permite crescimento mais agressivo à medida que o sistema escala, favorecendo a proteção da disponibilidade durante picos abruptos de carga.
+Esse modelo favorece respostas agressivas a picos abrutos de carga, preservando a disponibilidade do sistema.
 
 ### 3.6.5 Função de Decisão de Scale-Down Amortecido
 A contração de capacidade ocorre apenas quando a subutilização excede a zona morta configurada:
 
+##### **Equação (3.6.7) – Condição de scale-down**
 $$
 \text{Scale-Down} \iff
 \begin{cases}
@@ -228,17 +239,22 @@ N(t) > N_{\min}
 $$
 
 Define-se inicialmente a subutilização absoluta:
+
+##### **Equação (3.6.8) – Subutilização absoluta**
 $$
 U_{\text{under}}(t) = |\Delta U(t)|
 $$
 
 Aplica-se então um amortecimento não linear:
+
+##### **Equação (3.6.9) – Função de amortecimento**
 $$
 D(t) = U_{\text{under}}(t)^{\frac{1}{\gamma}}
 $$
 
-
 O número de instâncias removidas é dado por:
+
+##### **Equação (3.6.10) – Decremento de instâncias**
 $$
 \Delta N^{-}(t) =
 \left\lfloor
@@ -246,7 +262,9 @@ D(t) \cdot \beta \cdot N(t)
 \right\rfloor
 $$
 
-Com restrições:
+Com as seguintes restrições:
+
+##### **Equação (3.6.11) – Saturação de scale-down**
 $$
 1 \leq \Delta N^{-}(t) \leq N(t) - N_{\min}
 $$
@@ -257,6 +275,7 @@ Esse mecanismo reduz a sensibilidade do sistema a pequenas flutuações de carga
 
 O sistema evolui em tempo discreto, sendo o número de instâncias atualizado conforme a decisão tomada:
 
+##### **Equação (3.6.12) – Evolução do número de instâncias**
 $$
 N(t+1) =
 \begin{cases}
@@ -266,7 +285,7 @@ N(t), & \text{caso contrário}
 \end{cases}
 $$
 
-Após cada transição de estado, o controlador entra em um período de inatividade forçada (cooldown), durante o qual novas decisões são suprimidas.
+Após cada transição de estado definida na Equação (3.6.12), o controlador entra em um período de inatividade forçada (cooldown), durante o qual novas decisões são suprimidas.
 
 ### 3.6.7 Classificação do Controlador
 Do ponto de vista de sistemas de controle, o modelo pode ser caracterizado como:
